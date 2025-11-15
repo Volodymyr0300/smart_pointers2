@@ -1,65 +1,76 @@
-use std::mem;
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
-struct Point {
-    x: f64,
-    y: f64,
+pub trait Messenger {
+    fn send(&self, msg: &str);
 }
 
-// A Rectangle can be specified by where its top left and bottom right
-// corners are in space
-#[allow(dead_code)]
-struct Rectangle {
-    top_left: Point,
-    bottom_right: Point,
+pub struct LimitTracker<'a, T: Messenger> {
+    messenger: &'a T,
+    value: usize,
+    max: usize,
 }
 
-fn origin() -> Point {
-    Point { x: 0.0, y: 0.0 }
-}
+impl<'a, T> LimitTracker<'a, T>
+where
+    T: Messenger,
+{
+    pub fn new(messenger: &'a T, max: usize) -> LimitTracker<'a, T> {
+        LimitTracker {
+            messenger,
+            value: 0,
+            max,
+        }
+    }
 
-fn boxed_origin() -> Box<Point> {
-    // Allocate this point on the heap, and return a pointer to it
-    Box::new(Point { x: 0.0, y: 0.0 })
+    pub fn set_value(&mut self, value: usize) {
+        self.value = value;
+
+        let percentage_of_max = self.value as f64 / self.max as f64;
+
+        if percentage_of_max >= 1.0 {
+            self.messenger.send("Error: You are over your quota!");
+        } else if percentage_of_max >= 0.9 {
+            self.messenger
+                .send("Urgent warning: You've used up over 90% of your quota!");
+        } else if percentage_of_max >= 0.75 {
+            self.messenger
+                .send("Warning: You've used up over 75% of your quota!");
+        }
+    }
 }
 
 fn main() {
-    // (all the type annotations are superfluous)
-    // Stack allocated variables
-    let point: Point = origin();
-    let rectangle: Rectangle = Rectangle {
-        top_left: origin(),
-        bottom_right: Point { x: 3.0, y: -4.0 }
-    };
+    
+}
 
-    // Heap allocated rectangle
-    let boxed_rectangle: Box<Rectangle> = Box::new(Rectangle {
-        top_left: origin(),
-        bottom_right: Point { x: 3.0, y: -4.0 },
-    });
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
 
-    // The output of functions can be boxed
-    let boxed_point: Box<Point> = Box::new(origin());
+    struct MockMessenger {
+        sent_messages: RefCell<Vec<String>>,
+    }
 
-    // Double indirection
-    let box_in_a_box: Box<Box<Point>> = Box::new(boxed_origin());
+    impl MockMessenger {
+        fn new() -> MockMessenger {
+            MockMessenger {
+                sent_messages: RefCell::new(vec![]),
+            }
+        }
+    }
 
-    println!("Point occupies {} bytes on the stack",
-             mem::size_of_val(&point));
-    println!("Rectangle occupies {} bytes on the stack",
-             mem::size_of_val(&rectangle));
+    impl Messenger for MockMessenger {
+        fn send(&self, message: &str) {
+            self.sent_messages.borrow_mut().push(String::from(message));
+        }
+    }
 
-    // box size == pointer size
-    println!("Boxed point occupies {} bytes on the stack",
-             mem::size_of_val(&boxed_point));
-    println!("Boxed rectangle occupies {} bytes on the stack",
-             mem::size_of_val(&boxed_rectangle));
-    println!("Boxed box occupies {} bytes on the stack",
-             mem::size_of_val(&box_in_a_box));
+    #[test]
+    fn it_sends_an_over_75_percent_warning_message() {
+        let mock_messenger = MockMessenger::new();
+        let mut limit_tracker = LimitTracker::new(&mock_messenger, 100);
 
-    // Copy the data contained in `boxed_point` into `unboxed_point`
-    let unboxed_point: Point = *boxed_point;
-    println!("Unboxed point occupies {} bytes on the stack",
-             mem::size_of_val(&unboxed_point));
+        limit_tracker.set_value(80);
+
+        assert_eq!(mock_messenger.sent_messages.borrow().len(), 1);
+    }
 }
